@@ -1,0 +1,91 @@
+diff --git a/django/contrib/admin/options.py b/django/contrib/admin/options.py
+index 73c2958..7c94383 100644
+--- a/django/contrib/admin/options.py
++++ b/django/contrib/admin/options.py
+@@ -305,6 +305,13 @@ class BaseModelAdmin(object):
+         opts = self.opts
+         return request.user.has_perm(opts.app_label + '.' + opts.get_delete_permission())
+ 
++    def has_view_permission(self, request, obj=None):
++        if (request.method == 'POST'):
++            return None
++
++        opts = self.opts
++        return request.user.has_perm(opts.app_label + '.' + opts.get_view_permission())
++
+ class ModelAdmin(BaseModelAdmin):
+     "Encapsulates all admin options and functionality for a given model."
+ 
+@@ -418,6 +425,7 @@ class ModelAdmin(BaseModelAdmin):
+             'add': self.has_add_permission(request),
+             'change': self.has_change_permission(request),
+             'delete': self.has_delete_permission(request),
++            'view': self.has_view_permission(request),
+         }
+ 
+     def get_fieldsets(self, request, obj=None):
+@@ -1017,7 +1025,8 @@ class ModelAdmin(BaseModelAdmin):
+         obj = self.get_object(request, unquote(object_id))
+ 
+         if not self.has_change_permission(request, obj):
+-            raise PermissionDenied
++            if not self.has_view_permission(request, obj):
++                raise PermissionDenied
+ 
+         if obj is None:
+             raise Http404(_('%(name)s object with primary key %(key)r does not exist.') % {'name': force_unicode(opts.verbose_name), 'key': escape(object_id)})
+@@ -1107,8 +1116,10 @@ class ModelAdmin(BaseModelAdmin):
+         from django.contrib.admin.views.main import ERROR_FLAG
+         opts = self.model._meta
+         app_label = opts.app_label
++
+         if not self.has_change_permission(request, None):
+-            raise PermissionDenied
++            if not self.has_view_permission(request, None):
++                raise PermissionDenied
+ 
+         list_display = self.get_list_display(request)
+         list_display_links = self.get_list_display_links(request, list_display)
+diff --git a/django/contrib/admin/sites.py b/django/contrib/admin/sites.py
+index 4bb6440..19c7063 100644
+--- a/django/contrib/admin/sites.py
++++ b/django/contrib/admin/sites.py
+@@ -358,6 +358,11 @@ class AdminSite(object):
+                             model_dict['add_url'] = reverse('admin:%s_%s_add' % info, current_app=self.name)
+                         except NoReverseMatch:
+                             pass
++                    if perms.get('view', False):
++                        try:
++                            model_dict['admin_url'] = reverse('admin:%s_%s_changelist' % info, current_app=self.name)
++                        except NoReverseMatch:
++                            pass
+                     if app_label in app_dict:
+                         app_dict[app_label]['models'].append(model_dict)
+                     else:
+diff --git a/django/contrib/auth/management/__init__.py b/django/contrib/auth/management/__init__.py
+index b516507..dacad7d 100644
+--- a/django/contrib/auth/management/__init__.py
++++ b/django/contrib/auth/management/__init__.py
+@@ -16,7 +16,7 @@ def _get_permission_codename(action, opts):
+ def _get_all_permissions(opts):
+     "Returns (codename, name) for all permissions in the given opts."
+     perms = []
+-    for action in ('add', 'change', 'delete'):
++    for action in ('add', 'change', 'delete', 'view'):
+         perms.append((_get_permission_codename(action, opts), u'Can %s %s' % (action, opts.verbose_name_raw)))
+     return perms + list(opts.permissions)
+ 
+diff --git a/django/db/models/options.py b/django/db/models/options.py
+index 44f8891..5f23646 100644
+--- a/django/db/models/options.py
++++ b/django/db/models/options.py
+@@ -359,6 +359,9 @@ class Options(object):
+     def get_delete_permission(self):
+         return 'delete_%s' % self.object_name.lower()
+ 
++    def get_view_permission(self):
++        return 'view_%s' % self.object_name.lower()
++
+     def get_all_related_objects(self, local_only=False, include_hidden=False,
+                                 include_proxy_eq=False):
+         return [k for k, v in self.get_all_related_objects_with_model(
